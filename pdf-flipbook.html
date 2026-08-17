@@ -364,7 +364,12 @@
   loadPdf(fileUrl);
 
   function loadPdf(url) {
-    var loadingTask = pdfjsLib.getDocument(url);
+    var loadingTask = pdfjsLib.getDocument({
+      url: url,
+      cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/"
+    });
     loadingTask.onProgress = function(p) {
       if (p.total) {
         var pct = Math.min(100, Math.round((p.loaded / p.total) * 100));
