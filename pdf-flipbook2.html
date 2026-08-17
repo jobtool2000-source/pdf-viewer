@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF ビューアー</title>
+
+<style>
+  :root{
+    --ink:#1b1b1d;
+    --paper:#efece4;
+    --paper-shadow:#c9c3b4;
+    --accent:#8a5a3b;
+    --muted:#6f6b62;
+    --panel:#26241f;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:var(--panel);
+    font-family:"Georgia","Hiragino Mincho ProN","Yu Mincho",serif;
+    color:var(--paper);
+    overflow:hidden;
+  }
+  #app{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    height:100%;
+    width:100%;
+    position:relative;
+  }
+
+  /* top bar */
+  #bar{
+    position:absolute;
+    top:0; left:0; right:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 22px;
+    background:linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+    z-index:10;
+    font-family:"Helvetica Neue",Arial,sans-serif;
+  }
+  #title{
+    font-size:14px;
+    letter-spacing:0.06em;
+    color:#d9d4c7;
+    opacity:0.85;
+  }
+  #pageCounter{
+    font-size:13px;
+    color:#d9d4c7;
+    opacity:0.7;
+    letter-spacing:0.05em;
+  }
+
+  /* book stage */
+  #stage{
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:100%;
+    overflow:hidden;
+    position:relative;
+  }
+  #zoomWrapper{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    touch-action:none;
+  }
+  #zoomWrapper.panning{
+    cursor:grabbing;
+  }
+  #zoomWrapper.zoomed{
+    cursor:grab;
+  }
+  #book{
+    box-shadow:0 30px 60px -20px rgba(0,0,0,0.7);
+    transform-origin:center center;
+    will-change:transform;
+  }
+  #book.zoomed{
+    pointer-events:none;
+  }
+  /* right-to-left (manga-style) mode: each page's own artwork is
+     un-mirrored via JS-applied transform on #book; this just keeps
+     the image itself readable within a mirrored book */
+  #book.rtl .page img{
+    transform:scaleX(-1);
+  }
+  .page{
+    background-color:var(--paper);
+    background-image:
+      linear-gradient(90deg, rgba(0,0,0,0.06), transparent 3%, transparent 97%, rgba(0,0,0,0.06));
+  }
+  .page img{
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    display:block;
+  }
+  .page-cover{
+    background-color:#3a2f27;
+  }
+
+  /* nav arrows */
+  .nav-btn{
+    position:absolute;
+    top:50%;
+    transform:translateY(-50%);
+    background:rgba(0,0,0,0.35);
+    border:1px solid rgba(255,255,255,0.15);
+    color:#efece4;
+    width:44px;
+    height:44px;
+    border-radius:50%;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:18px;
+    transition:background 0.2s ease, transform 0.15s ease;
+    z-index:10;
+    font-family:"Helvetica Neue",Arial,sans-serif;
+  }
+  .nav-btn:hover{
+    background:rgba(0,0,0,0.6);
+  }
+  .nav-btn:active{
+    transform:translateY(-50%) scale(0.92);
+  }
+  #prevBtn{left:18px;}
+  #nextBtn{right:18px;}
+
+  /* zoom controls */
+  #zoomControls{
+    position:absolute;
+    right:18px;
+    bottom:18px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    z-index:11;
+    font-family:"Helvetica Neue",Arial,sans-serif;
+  }
+  .zoom-btn{
+    background:rgba(0,0,0,0.35);
+    border:1px solid rgba(255,255,255,0.15);
+    color:#efece4;
+    width:36px;
+    height:36px;
+    border-radius:8px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:17px;
+    line-height:1;
+    transition:background 0.2s ease;
+  }
+  .zoom-btn:hover{
+    background:rgba(0,0,0,0.6);
+  }
+  #zoomResetBtn{
+    font-size:11px;
+  }
+  #zoomLevel{
+    text-align:center;
+    font-size:10px;
+    color:#c9c3b4;
+    opacity:0.7;
+    letter-spacing:0.03em;
+  }
+
+  /* logo, sits just above the zoom controls in the bottom-right corner */
+  #logoBox{
+    position:absolute;
+    right:18px;
+    bottom:172px;
+    z-index:10;
+    display:none;
+    max-width:120px;
+    opacity:0.92;
+  }
+  #logoBox img{
+    display:block;
+    max-width:120px;
+    max-height:52px;
+    width:auto;
+    height:auto;
+    filter:drop-shadow(0 2px 6px rgba(0,0,0,0.5));
+  }
+  @media (max-width:640px){
+    #logoBox{
+      right:12px;
+      bottom:150px;
+      max-width:80px;
+    }
+    #logoBox img{
+      max-width:80px;
+      max-height:36px;
+    }
+  }
+
+  /* bottom hint */
+  #hint{
+    position:absolute;
+    bottom:16px;
+    left:0; right:0;
+    text-align:center;
+    font-family:"Helvetica Neue",Arial,sans-serif;
+    font-size:12px;
+    color:#c9c3b4;
+    opacity:0.55;
+    letter-spacing:0.04em;
+  }
+
+  /* loading state */
+  #loading{
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    font-family:"Helvetica Neue",Arial,sans-serif;
+    color:#d9d4c7;
+    z-index:20;
+    background:var(--panel);
+  }
+  .spinner{
+    width:34px;
+    height:34px;
+    border-radius:50%;
+    border:3px solid rgba(255,255,255,0.15);
+    border-top-color:var(--accent);
+    animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg);} }
+  #loadingText{
+    font-size:13px;
+    letter-spacing:0.05em;
+    opacity:0.75;
+  }
+  #progressTrack{
+    width:180px;
+    height:3px;
+    background:rgba(255,255,255,0.12);
+    border-radius:2px;
+    overflow:hidden;
+  }
+  #progressFill{
+    height:100%;
+    width:0%;
+    background:var(--accent);
+    transition:width 0.15s ease;
+  }
+
+  /* error / setup state */
+  #setup{
+    position:absolute;
+    inset:0;
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:32px;
+    font-family:"Helvetica Neue",Arial,sans-serif;
+    color:#d9d4c7;
+    z-index:20;
+    background:var(--panel);
+  }
+  #setup h1{
+    font-family:Georgia,serif;
+    font-size:20px;
+    font-weight:normal;
+    color:#efece4;
+    margin-bottom:10px;
+  }
+  #setup p{
+    max-width:420px;
+    font-size:13px;
+    line-height:1.7;
+    color:#b8b3a6;
+    margin:4px 0;
+  }
+  #setup code{
+    background:rgba(255,255,255,0.08);
+    padding:2px 6px;
+    border-radius:4px;
+    font-size:12px;
+  }
+
+  @media (max-width:640px){
+    .nav-btn{width:36px;height:36px;font-size:15px;}
+    #bar{padding:10px 14px;}
+    #title{font-size:12px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <div id="bar">
+    <div id="title">資料</div>
+    <div id="pageCounter"></div>
+  </div>
+
+  <div id="stage">
+    <div id="zoomWrapper">
+      <div id="book"></div>
+    </div>
+  </div>
+
+  <button id="prevBtn" class="nav-btn" aria-label="前のページ">&#10094;</button>
+  <button id="nextBtn" class="nav-btn" aria-label="次のページ">&#10095;</button>
+
+  <div id="zoomControls">
+    <button id="zoomInBtn" class="zoom-btn" aria-label="拡大">&#43;</button>
+    <button id="zoomOutBtn" class="zoom-btn" aria-label="縮小">&#8722;</button>
+    <button id="zoomResetBtn" class="zoom-btn" aria-label="拡大率をリセット">1x</button>
+    <div id="zoomLevel"></div>
+  </div>
+
+  <div id="logoBox"><a id="logoLink" href="#" target="_blank" rel="noopener"><img id="logoImg" alt="logo"></a></div>
+
+  <div id="hint">クリックまたは矢印キーでめくれます／ホイールやピンチで拡大縮小</div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="loadingText">PDFを読み込み中…</div>
+    <div id="progressTrack"><div id="progressFill"></div></div>
+  </div>
+
+  <div id="setup">
+    <h1>PDFが指定されていません</h1>
+    <p>このページのURLに <code>?file=資料.pdf</code> を付けて開いてください。</p>
+    <p>例：<code>pdf-flipbook.html?file=catalog.pdf</code></p>
+    <p>PDFファイルは、このHTMLファイルと同じ場所（同じサーバー）に置いてください。</p>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+
+<script>
+(function(){
+  "use strict";
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  var params = new URLSearchParams(window.location.search);
+  var fileUrl = params.get("file");
+  var isRTL = params.get("rtl") === "1";
+  var logoUrl = params.get("logo");
+  var logoLinkUrl = params.get("logo_link");
+
+  if (logoUrl) {
+    var logoBox = document.getElementById("logoBox");
+    var logoImg = document.getElementById("logoImg");
+    var logoLink = document.getElementById("logoLink");
+    logoImg.src = logoUrl;
+    if (logoLinkUrl) {
+      logoLink.href = logoLinkUrl;
+    } else {
+      // no link target: make it non-interactive, just a mark
+      logoLink.removeAttribute("href");
+      logoLink.style.cursor = "default";
+    }
+    logoImg.onload = function() { logoBox.style.display = "block"; };
+    logoImg.onerror = function() { logoBox.style.display = "none"; };
+  }
+
+  var loadingEl = document.getElementById("loading");
+  var loadingText = document.getElementById("loadingText");
+  var progressFill = document.getElementById("progressFill");
+  var setupEl = document.getElementById("setup");
+  var bookEl = document.getElementById("book");
+  var pageCounterEl = document.getElementById("pageCounter");
+  var titleEl = document.getElementById("title");
+  var prevBtn = document.getElementById("prevBtn");
+  var nextBtn = document.getElementById("nextBtn");
+
+  if (!fileUrl) {
+    loadingEl.style.display = "none";
+    setupEl.style.display = "flex";
+    return;
+  }
+
+  // use filename (without extension) as a friendly title
+  try {
+    var raw = decodeURIComponent(fileUrl.split("/").pop());
+    titleEl.textContent = raw.replace(/\.pdf$/i, "");
+  } catch(e) {}
+
+  function fitSize() {
+    // total width budget for the whole book (both pages, if spread)
+    var maxW = Math.min(window.innerWidth * 0.9, 1040);
+    var maxH = window.innerHeight * 0.78;
+    return { w: Math.round(maxW), h: Math.round(maxH) };
+  }
+
+  loadPdf(fileUrl);
+
+  function loadPdf(url) {
+    var loadingTask = pdfjsLib.getDocument({
+      url: url,
+      cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/"
+    });
+    loadingTask.onProgress = function(p) {
+      if (p.total) {
+        var pct = Math.min(100, Math.round((p.loaded / p.total) * 100));
+        progressFill.style.width = pct + "%";
+      }
+    };
+
+    loadingTask.promise.then(function(pdf) {
+      var numPages = pdf.numPages;
+      var pageImages = new Array(numPages);
+      var loadedCount = 0;
+      var refPageRatio = 1.414; // updated from first rendered page
+
+      loadingText.textContent = "ページを描画中… (0/" + numPages + ")";
+
+      var renderPromises = [];
+      for (var i = 1; i <= numPages; i++) {
+        renderPromises.push(renderPage(pdf, i));
+      }
+
+      function renderPage(pdf, pageNum) {
+        return pdf.getPage(pageNum).then(function(page) {
+          var scale = 1.6;
+          var viewport = page.getViewport({ scale: scale });
+          var canvas = document.createElement("canvas");
+          var ctx = canvas.getContext("2d");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+
+          if (pageNum === 1) {
+            refPageRatio = viewport.width / viewport.height;
+          }
+
+          return page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function() {
+            pageImages[pageNum - 1] = canvas.toDataURL("image/jpeg", 0.86);
+            loadedCount++;
+            loadingText.textContent = "ページを描画中… (" + loadedCount + "/" + numPages + ")";
+            progressFill.style.width = Math.round((loadedCount / numPages) * 100) + "%";
+          });
+        });
+      }
+
+      Promise.all(renderPromises).then(function() {
+        buildBook(pageImages, refPageRatio, numPages);
+        loadingEl.style.display = "none";
+      }).catch(function(err) {
+        showError("ページの描画に失敗しました: " + err.message);
+      });
+
+    }).catch(function(err) {
+      showError("PDFを読み込めませんでした: " + err.message);
+    });
+  }
+
+  function showError(msg) {
+    loadingEl.style.display = "none";
+    setupEl.querySelector("h1").textContent = "読み込みエラー";
+    setupEl.querySelector("p").textContent = msg;
+    setupEl.style.display = "flex";
+  }
+
+  function buildBook(pageImages, ratio, numPages) {
+    var zoomWrapperEl = document.getElementById("zoomWrapper");
+    var isNarrow = window.innerWidth < 700;
+
+    var sizeBox = fitSize();
+    var h = sizeBox.h;
+    var w = Math.round(h * ratio);
+    var maxSingleW = isNarrow ? sizeBox.w : sizeBox.w / 2;
+    if (w > maxSingleW) {
+      w = maxSingleW;
+      h = Math.round(w / ratio);
+    }
+
+    // give the wrapper an explicit width matching the intended spread
+    // so the flip library correctly detects there's room for two pages
+    zoomWrapperEl.style.width = (isNarrow ? w : w * 2) + "px";
+    zoomWrapperEl.style.height = h + "px";
+
+    for (var i = 0; i < pageImages.length; i++) {
+      var pageDiv = document.createElement("div");
+      pageDiv.className = "page";
+      var img = document.createElement("img");
+      img.src = pageImages[i];
+      img.draggable = false;
+      pageDiv.appendChild(img);
+      bookEl.appendChild(pageDiv);
+    }
+
+    var pageFlip = new St.PageFlip(bookEl, {
+      width: w,
+      height: h,
+      size: "fixed",
+      minWidth: 200,
+      maxWidth: 1000,
+      minHeight: 280,
+      maxHeight: 1400,
+      showCover: true,
+      usePortrait: isNarrow,
+      maxShadowOpacity: 0.5,
+      mobileScrollSupport: false,
+      useMouseEvents: true
+    });
+
+    pageFlip.loadFromHTML(document.querySelectorAll(".page"));
+
+    function updateCounter() {
+      var cur = pageFlip.getCurrentPageIndex() + 1;
+      pageCounterEl.textContent = cur + " / " + numPages;
+    }
+    updateCounter();
+    pageFlip.on("flip", updateCounter);
+
+    if (isRTL) {
+      document.getElementById("hint").textContent =
+        "右開き表示中／クリックまたは矢印キーでめくれます／ホイールやピンチで拡大縮小";
+    }
+
+    prevBtn.addEventListener("click", function() { isRTL ? pageFlip.flipNext() : pageFlip.flipPrev(); });
+    nextBtn.addEventListener("click", function() { isRTL ? pageFlip.flipPrev() : pageFlip.flipNext(); });
+
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "ArrowRight") isRTL ? pageFlip.flipPrev() : pageFlip.flipNext();
+      if (e.key === "ArrowLeft") isRTL ? pageFlip.flipNext() : pageFlip.flipPrev();
+    });
+
+    window.addEventListener("resize", function() {
+      var nowNarrow = window.innerWidth < 700;
+      var box = fitSize();
+      var newH = box.h;
+      var newW = Math.round(newH * ratio);
+      var maxSingle = nowNarrow ? box.w : box.w / 2;
+      if (newW > maxSingle) {
+        newW = maxSingle;
+        newH = Math.round(newW / ratio);
+      }
+      zoomWrapperEl.style.width = (nowNarrow ? newW : newW * 2) + "px";
+      zoomWrapperEl.style.height = newH + "px";
+      pageFlip.updateSize && pageFlip.updateSize();
+    });
+
+    setupZoom(isRTL);
+  }
+
+  function setupZoom(isRTL) {
+    var zoomWrapper = document.getElementById("zoomWrapper");
+    var bookEl = document.getElementById("book");
+    var zoomInBtn = document.getElementById("zoomInBtn");
+    var zoomOutBtn = document.getElementById("zoomOutBtn");
+    var zoomResetBtn = document.getElementById("zoomResetBtn");
+    var zoomLevelEl = document.getElementById("zoomLevel");
+
+    var MIN_SCALE = 1;
+    var MAX_SCALE = 3.5;
+    var scale = 1, tx = 0, ty = 0;
+    var isPanning = false;
+    var startX = 0, startY = 0, startTx = 0, startTy = 0;
+
+    bookEl.classList.toggle("rtl", !!isRTL);
+
+    function apply() {
+      var xScale = isRTL ? -scale : scale;
+      bookEl.style.transform = "scale(" + xScale + ", " + scale + ") translate(" + tx + "px, " + ty + "px)";
+      var zoomedIn = scale > 1.001;
+      zoomWrapper.classList.toggle("zoomed", zoomedIn);
+      bookEl.classList.toggle("zoomed", zoomedIn);
+      zoomLevelEl.textContent = zoomedIn ? Math.round(scale * 100) + "%" : "";
+      if (!zoomedIn) { tx = 0; ty = 0; }
+    }
+
+    function clampPan() {
+      // rough clamp so the page can't be dragged entirely off-screen
+      var rect = bookEl.getBoundingClientRect();
+      var wrapRect = zoomWrapper.getBoundingClientRect();
+      var maxOffsetX = Math.max(0, (rect.width * scale - wrapRect.width) / (2 * scale));
+      var maxOffsetY = Math.max(0, (rect.height * scale - wrapRect.height) / (2 * scale));
+      tx = Math.max(-maxOffsetX, Math.min(maxOffsetX, tx));
+      ty = Math.max(-maxOffsetY, Math.min(maxOffsetY, ty));
+    }
+
+    function setScale(newScale, originClientX, originClientY) {
+      newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+      if (originClientX !== undefined && scale !== newScale) {
+        var rect = bookEl.getBoundingClientRect();
+        var cx = rect.left + rect.width / 2;
+        var cy = rect.top + rect.height / 2;
+        var dx = (originClientX - cx) / scale;
+        var dy = (originClientY - cy) / scale;
+        // shift toward the pointer proportionally to the scale delta
+        tx -= dx * (newScale - scale) / newScale;
+        ty -= dy * (newScale - scale) / newScale;
+      }
+      scale = newScale;
+      clampPan();
+      apply();
+    }
+
+    zoomInBtn.addEventListener("click", function() {
+      setScale(scale + 0.5);
+    });
+    zoomOutBtn.addEventListener("click", function() {
+      setScale(scale - 0.5);
+    });
+    zoomResetBtn.addEventListener("click", function() {
+      scale = 1; tx = 0; ty = 0; apply();
+    });
+
+    // mouse wheel zoom
+    zoomWrapper.addEventListener("wheel", function(e) {
+      e.preventDefault();
+      var delta = e.deltaY < 0 ? 0.18 : -0.18;
+      setScale(scale + delta, e.clientX, e.clientY);
+    }, { passive: false });
+
+    // double-click to zoom in/out
+    zoomWrapper.addEventListener("dblclick", function(e) {
+      if (scale > 1.001) {
+        scale = 1; tx = 0; ty = 0; apply();
+      } else {
+        setScale(2.2, e.clientX, e.clientY);
+      }
+    });
+
+    // drag to pan (mouse)
+    zoomWrapper.addEventListener("mousedown", function(e) {
+      if (scale <= 1.001) return;
+      isPanning = true;
+      zoomWrapper.classList.add("panning");
+      startX = e.clientX; startY = e.clientY;
+      startTx = tx; startTy = ty;
+    });
+    window.addEventListener("mousemove", function(e) {
+      if (!isPanning) return;
+      tx = startTx + (e.clientX - startX) / scale;
+      ty = startTy + (e.clientY - startY) / scale;
+      clampPan();
+      apply();
+    });
+    window.addEventListener("mouseup", function() {
+      isPanning = false;
+      zoomWrapper.classList.remove("panning");
+    });
+
+    // touch: pinch to zoom + one-finger pan when zoomed
+    var touchStartDist = null;
+    var touchStartScale = 1;
+    var lastTouchX = 0, lastTouchY = 0;
+
+    zoomWrapper.addEventListener("touchstart", function(e) {
+      if (e.touches.length === 2) {
+        touchStartDist = touchDistance(e.touches);
+        touchStartScale = scale;
+      } else if (e.touches.length === 1 && scale > 1.001) {
+        isPanning = true;
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+        startTx = tx; startTy = ty;
+      }
+    }, { passive: true });
+
+    zoomWrapper.addEventListener("touchmove", function(e) {
+      if (e.touches.length === 2 && touchStartDist) {
+        e.preventDefault();
+        var dist = touchDistance(e.touches);
+        var midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        var midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        setScale(touchStartScale * (dist / touchStartDist), midX, midY);
+      } else if (e.touches.length === 1 && isPanning) {
+        e.preventDefault();
+        tx = startTx + (e.touches[0].clientX - lastTouchX) / scale;
+        ty = startTy + (e.touches[0].clientY - lastTouchY) / scale;
+        clampPan();
+        apply();
+      }
+    }, { passive: false });
+
+    zoomWrapper.addEventListener("touchend", function(e) {
+      if (e.touches.length < 2) touchStartDist = null;
+      if (e.touches.length === 0) isPanning = false;
+    });
+
+    function touchDistance(touches) {
+      var dx = touches[0].clientX - touches[1].clientX;
+      var dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    apply();
+  }
+
+})();
+</script>
+
+</body>
+</html>
