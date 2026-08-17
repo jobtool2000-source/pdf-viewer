@@ -348,9 +348,9 @@
   } catch(e) {}
 
   function fitSize() {
-    var maxW = Math.min(window.innerWidth * 0.42, 520);
+    // total width budget for the whole book (both pages, if spread)
+    var maxW = Math.min(window.innerWidth * 0.9, 1040);
     var maxH = window.innerHeight * 0.78;
-    // A4-ish ratio fallback, refined once real page size is known
     return { w: Math.round(maxW), h: Math.round(maxH) };
   }
 
@@ -420,13 +420,22 @@
   }
 
   function buildBook(pageImages, ratio, numPages) {
+    var zoomWrapperEl = document.getElementById("zoomWrapper");
+    var isNarrow = window.innerWidth < 700;
+
     var sizeBox = fitSize();
     var h = sizeBox.h;
     var w = Math.round(h * ratio);
-    if (w > sizeBox.w) {
-      w = sizeBox.w;
+    var maxSingleW = isNarrow ? sizeBox.w : sizeBox.w / 2;
+    if (w > maxSingleW) {
+      w = maxSingleW;
       h = Math.round(w / ratio);
     }
+
+    // give the wrapper an explicit width matching the intended spread
+    // so the flip library correctly detects there's room for two pages
+    zoomWrapperEl.style.width = (isNarrow ? w : w * 2) + "px";
+    zoomWrapperEl.style.height = h + "px";
 
     for (var i = 0; i < pageImages.length; i++) {
       var pageDiv = document.createElement("div");
@@ -447,7 +456,7 @@
       minHeight: 280,
       maxHeight: 1400,
       showCover: false,
-      usePortrait: true,
+      usePortrait: isNarrow,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: false,
       useMouseEvents: true
@@ -471,13 +480,17 @@
     });
 
     window.addEventListener("resize", function() {
+      var nowNarrow = window.innerWidth < 700;
       var box = fitSize();
       var newH = box.h;
       var newW = Math.round(newH * ratio);
-      if (newW > box.w) {
-        newW = box.w;
+      var maxSingle = nowNarrow ? box.w : box.w / 2;
+      if (newW > maxSingle) {
+        newW = maxSingle;
         newH = Math.round(newW / ratio);
       }
+      zoomWrapperEl.style.width = (nowNarrow ? newW : newW * 2) + "px";
+      zoomWrapperEl.style.height = newH + "px";
       pageFlip.updateSize && pageFlip.updateSize();
     });
 
