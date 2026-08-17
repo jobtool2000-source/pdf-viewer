@@ -88,6 +88,12 @@
   #book.zoomed{
     pointer-events:none;
   }
+  /* right-to-left (manga-style) mode: each page's own artwork is
+     un-mirrored via JS-applied transform on #book; this just keeps
+     the image itself readable within a mirrored book */
+  #book.rtl .page img{
+    transform:scaleX(-1);
+  }
   .page{
     background-color:var(--paper);
     background-image:
@@ -324,6 +330,7 @@
 
   var params = new URLSearchParams(window.location.search);
   var fileUrl = params.get("file");
+  var isRTL = params.get("rtl") === "1";
 
   var loadingEl = document.getElementById("loading");
   var loadingText = document.getElementById("loadingText");
@@ -455,7 +462,7 @@
       maxWidth: 1000,
       minHeight: 280,
       maxHeight: 1400,
-      showCover: false,
+      showCover: true,
       usePortrait: isNarrow,
       maxShadowOpacity: 0.5,
       mobileScrollSupport: false,
@@ -471,12 +478,17 @@
     updateCounter();
     pageFlip.on("flip", updateCounter);
 
-    prevBtn.addEventListener("click", function() { pageFlip.flipPrev(); });
-    nextBtn.addEventListener("click", function() { pageFlip.flipNext(); });
+    if (isRTL) {
+      document.getElementById("hint").textContent =
+        "右開き表示中／クリックまたは矢印キーでめくれます／ホイールやピンチで拡大縮小";
+    }
+
+    prevBtn.addEventListener("click", function() { isRTL ? pageFlip.flipNext() : pageFlip.flipPrev(); });
+    nextBtn.addEventListener("click", function() { isRTL ? pageFlip.flipPrev() : pageFlip.flipNext(); });
 
     document.addEventListener("keydown", function(e) {
-      if (e.key === "ArrowRight") pageFlip.flipNext();
-      if (e.key === "ArrowLeft") pageFlip.flipPrev();
+      if (e.key === "ArrowRight") isRTL ? pageFlip.flipPrev() : pageFlip.flipNext();
+      if (e.key === "ArrowLeft") isRTL ? pageFlip.flipNext() : pageFlip.flipPrev();
     });
 
     window.addEventListener("resize", function() {
@@ -494,10 +506,10 @@
       pageFlip.updateSize && pageFlip.updateSize();
     });
 
-    setupZoom();
+    setupZoom(isRTL);
   }
 
-  function setupZoom() {
+  function setupZoom(isRTL) {
     var zoomWrapper = document.getElementById("zoomWrapper");
     var bookEl = document.getElementById("book");
     var zoomInBtn = document.getElementById("zoomInBtn");
@@ -511,8 +523,11 @@
     var isPanning = false;
     var startX = 0, startY = 0, startTx = 0, startTy = 0;
 
+    bookEl.classList.toggle("rtl", !!isRTL);
+
     function apply() {
-      bookEl.style.transform = "scale(" + scale + ") translate(" + tx + "px, " + ty + "px)";
+      var xScale = isRTL ? -scale : scale;
+      bookEl.style.transform = "scale(" + xScale + ", " + scale + ") translate(" + tx + "px, " + ty + "px)";
       var zoomedIn = scale > 1.001;
       zoomWrapper.classList.toggle("zoomed", zoomedIn);
       bookEl.classList.toggle("zoomed", zoomedIn);
@@ -636,6 +651,8 @@
       var dy = touches[0].clientY - touches[1].clientY;
       return Math.sqrt(dx * dx + dy * dy);
     }
+
+    apply();
   }
 
 })();
